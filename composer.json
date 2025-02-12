@@ -20,5 +20,7 @@
             "email": "bahmankhah1@gmail.com"
         }
     ],
-    "require": {}
+    "require": {},
+    "minimum-stability": "dev",
+    "prefer-stable": true
 }
