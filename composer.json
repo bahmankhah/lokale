@@ -1,0 +1,24 @@
+{
+    "name": "hsm/lokale",
+    "description": "Generate Locales",
+    "type": "library",
+    "autoload": {
+        "psr-4": {
+            "Hsm\\Lokale\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Hsm\\Lokale\\LokaleServiceProvider"
+            ]
+        }
+    },
+    "authors": [
+        {
+            "name": "Amirhesam Bahmankhah",
+            "email": "bahmankhah1@gmail.com"
+        }
+    ],
+    "require": {}
+}
