@@ -2,6 +2,7 @@
     "name": "hsm/lokale",
     "description": "Generate Locales",
     "type": "library",
+    "license": "MIT",
     "autoload": {
         "psr-4": {
             "Hsm\\Lokale\\": "src/"
