@@ -27,7 +27,7 @@ class MakeLocale extends Command
     {
         $locale = $this->option('locale');
         if(!$locale){
-            $locale = config('app.locale');
+            $locale = $this->components->ask('In which locale do you want to generate the language files?', config('app.locale'));
         }
 
         $files = [];
@@ -77,7 +77,11 @@ class MakeLocale extends Command
         $content = "<?php\n/**\n*\n*/\nreturn " . var_export($data, true) . ";\n";
         $content = str_replace(["array (", ")"], ["[", "]"], $content); // Replace `array (` with `[` and `)` with `]`
         $content = preg_replace('/=>\s+\[/', '=> [', $content); // Ensure proper spacing for `=> [` pairs
-    
+        if(!file_exists($filePath)){
+            $this->components->info("Language file [{$filePath}] created successfully.");
+        }else{
+            $this->components->info("Language file [{$filePath}] modified successfully.");
+        }
         file_put_contents($filePath, $content);
     }
     
