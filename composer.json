@@ -1,6 +1,7 @@
 {
     "name": "hsm/lokale",
-    "description": "Generate Locales",
+    "description": "Laravel Auto Locale Generator: Scan your Laravel project and automatically generate missing translation keys.",
+    "keywords": ["laravel", "locale", "translation", "localization", "language"],
     "type": "library",
     "license": "MIT",
     "autoload": {
@@ -18,9 +19,19 @@
     "authors": [
         {
             "name": "Amirhesam Bahmankhah",
-            "email": "bahmankhah1@gmail.com"
+            "email": "bahmankhah1@gmail.com",
+            "homepage": "https://github.com/bahmankhah",
+            "role": "Maintainer"
         }
     ],
-    "require": {},
+    "require": {
+        "php": "^7.4|^8.0",
+        "illuminate/support": "^8.0|^9.0|^10.0|^11.0" 
+    },
+    "config": {
+        "sort-packages": true,
+        "preferred-install": "dist"
+    },
+    "minimum-stability": "stable",
     "prefer-stable": true
 }
