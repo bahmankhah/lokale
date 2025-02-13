@@ -116,29 +116,30 @@ class MakeLocale extends Command
     }
 
     private function extractTranslationKeys($filePath)
-    {
-        $content = file_get_contents($filePath);
-    
-        $pattern = '/
-            __\(\s*[\'"]([^\'"]+)[\'"]\s*\)     |  
-            trans_choice\(\s*[\'"]([^\'"]+)[\'"]\s*, |
-            Lang::get\(\s*[\'"]([^\'"]+)[\'"]\s*\) |  
-            Lang::choice\(\s*[\'"]([^\'"]+)[\'"]\s*, |
-            @lang\(\s*[\'"]([^\'"]+)[\'"]\s*\) |  
-            @choice\(\s*[\'"]([^\'"]+)[\'"]\s*,
-        /x';
-    
-        preg_match_all($pattern, $content, $matches);
-    
-        return array_unique(array_filter(array_merge(
-            $matches[1], // __('key')
-            $matches[2], // trans_choice('key', count)
-            $matches[3], // Lang::get('key')
-            $matches[4], // Lang::choice('key', count)
-            $matches[5], // @lang('key')
-            $matches[6]  // @choice('key', count)
-        )));
-    }
+{
+    $content = file_get_contents($filePath);
+
+    $pattern = '/
+        __\(\s*[\'"]([^\'"]+)[\'"]\s*(?:,|\))  |  
+        trans_choice\(\s*[\'"]([^\'"]+)[\'"]\s*,  |
+        Lang::get\(\s*[\'"]([^\'"]+)[\'"]\s*(?:,|\))  |
+        Lang::choice\(\s*[\'"]([^\'"]+)[\'"]\s*,  |  
+        @lang\(\s*[\'"]([^\'"]+)[\'"]\s*(?:,|\))  |  
+        @choice\(\s*[\'"]([^\'"]+)[\'"]\s*,  
+    /x';
+
+    preg_match_all($pattern, $content, $matches);
+
+    return array_unique(array_filter(array_merge(
+        $matches[1], // __('key', [...])
+        $matches[2], // trans_choice('key', count, [...])
+        $matches[3], // Lang::get('key', [...])
+        $matches[4], // Lang::choice('key', count, [...])
+        $matches[5], // @lang('key', [...])
+        $matches[6]  // @choice('key', count, [...])
+    )));
+}
+
     
 
 
