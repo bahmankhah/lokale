@@ -1,18 +1,18 @@
 # Lokale
 
-Lokale is a Laravel package designed to generate locale files automatically by scanning your application for translation keys.
+**Lokale** is a Laravel package designed to automatically extract and generate translation files by scanning your source code for translation keys. It also supports syncing translations between different locales.
 
-## Installation
+## 🧩 Installation
 
-You can install the package via Composer:
+Install the package using Composer:
 
-```sh
+```bash
 composer require hsm/lokale
 ```
 
-## Configuration
+## ⚙️ Configuration
 
-Once installed, the package should be automatically discovered by Laravel. However, if you need to register the service provider manually, add the following line to your `config/app.php` file:
+This package uses Laravel's package discovery. If for some reason it's not auto-discovered, register it manually:
 
 ```php
 'providers' => [
@@ -20,54 +20,87 @@ Once installed, the package should be automatically discovered by Laravel. Howev
 ];
 ```
 
-## Usage
+## 🚀 Usage
 
-You can generate locale files using the provided Artisan command:
+### 1. Generate Locale Files
 
-```sh
-php artisan locale:make --locale=en --src=app
+You can generate translation files by scanning your source code:
+
+```bash
+php artisan locale:make
 ```
 
-### Command Options
+#### Options
 
-- `--locale`: Specify the target locale (default: application locale from `config('app.locale')`).
-- `--src`: Specify the source directory to scan for translation keys (default: `app/`).
+| Option        | Description                                                                 |
+|---------------|-----------------------------------------------------------------------------|
+| `--locale`    | Target locale to generate files for (default: value of `app.locale`).       |
+| `--src`       | Directory to scan for translation keys (default: `app/`).                   |
+| `--default`   | Used for generating default translation placeholders (default: `default`).  |
+| `--comment`   | Adds `@TODO` comments to missing translations with context information.     |
+| `--output`    | Output directory for language files (default: `lang/`).                     |
 
-## How It Works
+#### Example
 
-1. The command scans the specified directory (`--src`) for translation keys.
-2. Extracts all the translation keys used in the application.
-3. Creates language files inside the `resources/lang/{locale}` directory.
-
-## Example
-
-Assuming you have the following translation keys in your Blade templates or controllers:
-
-```php
-__('messages.welcome')
-__('auth.failed')
+```bash
+php artisan locale:make --locale=fr --src=app --comment
 ```
 
-Running the command:
-
-```sh
-php artisan locale:make --locale=fr --src=app
-```
-
-Will generate the following files:
+This will generate files like:
 
 ```
 resources/lang/fr/messages.php
 resources/lang/fr/auth.php
 ```
 
-Each file will contain an associative array with extracted keys, ready for translation.
+Each file will contain translation keys extracted from `__()`, `trans()`, or `trans_choice()` usage across your source code.
 
-## Author
+### 2. Sync Between Locales
 
-- **Amirhesam Bahmankhah** (bahmankhah1@gmail.com)
+You can synchronize translation files between two locales using:
 
-## License
+```bash
+php artisan locale:sync --from=en --to=fr
+```
 
-This package is open-sourced under the MIT License.
+#### Options
 
+| Option        | Description                                                                 |
+|---------------|-----------------------------------------------------------------------------|
+| `--from`      | Source locale. Required.                                                    |
+| `--to`        | Target locale. Required.                                                    |
+| `--output`    | Base directory for language files (default: `lang/`).                       |
+| `--comment`   | Adds `@TODO` comments for untranslated keys in target files.                |
+
+This is useful when adding new keys in one language and you want the same structure in another language.
+
+## 🧠 How It Works
+
+- Scans PHP and Blade files for translation functions (`__()`, `trans()`, `trans_choice()`).
+- Extracts keys and organizes them into proper translation files.
+- Adds `@TODO` comments for untranslated placeholders when `--comment` is enabled.
+- Generates modern, readable PHP array syntax.
+
+## 📂 Output Example
+
+`resources/lang/fr/messages.php`
+
+```php
+<?php
+/**
+ * Generated with hsm/lokale
+ */
+return [
+    'welcome' => 'Welcome',
+    'greeting' => 'Greeting', // @TODO Add translation
+];
+```
+
+## 👨‍💻 Author
+
+- **Amirhesam Bahmankhah**  
+  📧 bahmankhah1@gmail.com
+
+## 📄 License
+
+MIT © Amirhesam Bahmankhah
