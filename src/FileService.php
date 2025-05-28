@@ -1,8 +1,6 @@
 <?php
+namespace Hsm\Lokale;
 
-namespace Hsm\Lokale\Console;
-
-use Illuminate\Console\Command;
 use PhpParser\Comment;
 use PhpParser\Error;
 use PhpParser\Node;
@@ -12,65 +10,11 @@ use PhpParser\NodeVisitorAbstract;
 use PhpParser\ParserFactory;
 use PhpParser\PrettyPrinter\Standard;
 
-class MakeLocale extends Command
+class FileService
 {
-    /**
-     * The name and signature of the console command.
-     *
-     * @var string
-     */
-    protected $signature = 'locale:make {--locale=} {--src=app} {--default=default} {--comment} {--output=lang}';
-
-    /**
-     * The console command description.
-     *
-     * @var string
-     */
-    protected $description = 'Command description';
-
-    private $keyComments = [];
-    /**
-     * Execute the console command.
-     */
-    public function handle()
+    public function createLanguageFile($name, $locale, $array, $output, &$keyComments = [], $comment = false)
     {
-        $locale = $this->option('locale');
-        $default = $this->option('default');
-        if (!$locale) {
-            $locale = config('app.locale', 'en');
-        }
-
-        $files = [];
-        $appDir = $this->option('src');
-        $appDir = realpath($appDir);
-        $this->getFiles($appDir, $files);
-        $allKeys = [];
-        foreach ($files as $file) {
-            $allKeys = array_merge($allKeys, $this->extractTranslationKeysWithParser($file));
-        }
-        $allKeys = array_unique($allKeys);
-
-        foreach ($allKeys as $key) {
-            $arr = [];
-            $temp = explode('.', $key);
-            $first = array_shift($temp);
-            $this->makeArray(implode('.', $temp), $arr);
-            if (empty($arr)) {
-                $this->createLanguageFile($default, $locale, [$this->makeKey($first) => $first]);
-            } else {
-                $this->createLanguageFile($first, $locale, $arr);
-            }
-        }
-    }
-
-    public function makeKey($str)
-    {
-        return strtolower(str_replace(' ', "_", trim($str)));
-    }
-
-    private function createLanguageFile($name, $locale, $array)
-    {
-        $langMain = base_path($this->option('output'));
+        $langMain = base_path($output);
         $langFile = sprintf('%s/%s/%s.php', $langMain, $locale, $name);
         if (!file_exists(dirname($langFile))) {
             mkdir(dirname($langFile), 0777, true);
@@ -83,11 +27,11 @@ class MakeLocale extends Command
                 $content = [];
             }
         }
-        $array = $this->recursiveMerge($content, $array);
-        $this->createPhpArrayFile($langFile, $array);
+        $array = $this->recursiveMerge($content, $array, $keyComments, $comment);
+        $this->createPhpArrayFile($langFile, $array, $keyComments);
     }
 
-    private function createPhpArrayFile($filePath, array $data)
+    public function createPhpArrayFile($filePath, array $data, array &$keyComments)
     {
         // Export the array using var_export
         $exported = "<?php\nreturn " . var_export($data, true) . ";\n";
@@ -98,13 +42,12 @@ class MakeLocale extends Command
 
         // Create a visitor to convert array() to [] and add comments for specific keys
         $traverser = new NodeTraverser();
-        $keyComments = $this->keyComments;
         $traverser->addVisitor(new class($keyComments) extends NodeVisitorAbstract {
             private $keyComments;
 
-            public function __construct(array $keyComments)
+            public function __construct(array &$keyComments)
             {
-                $this->keyComments = $keyComments;
+                $this->keyComments = &$keyComments;
             }
 
             public function enterNode(Node $node)
@@ -187,32 +130,32 @@ class MakeLocale extends Command
         file_put_contents($filePath, $content);
     }
 
-    public function addComment($key, $commentValue){
-        if(isset($this->keyComments[$key])){
-            if(!in_array($commentValue, $this->keyComments[$key])){
-                $this->keyComments[$key][] = $commentValue;
+    public function addComment(&$comments,$key, $commentValue){
+        if(isset($comments[$key])){
+            if(!in_array($commentValue, $comments[$key])){
+                $comments[$key][] = $commentValue;
             }
         }else{
-            $this->keyComments[$key] = [$commentValue];
+            $comments[$key] = [$commentValue];
         }
     }
 
-    private function recursiveMerge(array $array1, array $array2)
+    public function recursiveMerge(array $array1, array $array2, array &$comments, $comment = false)
     {
         foreach ($array2 as $key => $value) {
             if (isset($array1[$key]) && is_array($array1[$key]) && is_array($value)) {
-                $array1[$key] = $this->recursiveMerge($array1[$key], $value);
+                $array1[$key] = $this->recursiveMerge($array1[$key], $value, $comments, $comment);
             } elseif (!isset($array1[$key]) || $array1[$key] === '') {
                 $array1[$key] = $value;
-                if($this->option('comment')){
-                    $this->addComment($key,"@TODO Add translation");
+                if($comment){
+                    $this->addComment($comments,$key,"@TODO Add translation");
                 }
             }
         }
         return $array1;
     }
 
-    private function makeArray($path, &$arr)
+    public function makeArray($path, &$arr)
     {
         $parts = explode('.', $path);
 
@@ -232,12 +175,17 @@ class MakeLocale extends Command
         }
     }
 
-    private function makeDefaultPlaceholder($key)
+    public function makeDefaultPlaceholder($key)
     {
         return str_replace("_", " ", ucfirst($key));
     }
 
-    private function extractTranslationKeysWithParser($filePath)
+    public function makeKey($str)
+    {
+        return strtolower(str_replace(' ', "_", trim($str)));
+    }
+
+    public function extractTranslationKeysWithParser($filePath, &$keyComments)
     {
         $parser = (new ParserFactory)->createForNewestSupportedVersion();
         $content = file_get_contents($filePath);
@@ -306,16 +254,18 @@ class MakeLocale extends Command
                 $ast = $parser->parse($content);
                 $traverser = new NodeTraverser();
 
-                $traverser->addVisitor(new class($keys, $this, $filePath) extends NodeVisitorAbstract {
+                $traverser->addVisitor(new class($keys, $this, $filePath, $keyComments) extends NodeVisitorAbstract {
                     public $keys;
-                    public $makeLocale;
+                    public $fileService;
                     public $file;
+                    public $keyComments;
 
-                    public function __construct(&$keys, MakeLocale $makeLocale, $filePath)
+                    public function __construct(&$keys, FileService $fileService, $filePath, &$keyComments)
                     {
                         $this->file = $filePath;
                         $this->keys = &$keys;
-                        $this->makeLocale = $makeLocale;
+                        $this->fileService = $fileService;
+                        $this->keyComments = &$keyComments;
                     }
 
                     public function enterNode(Node $node)
@@ -328,9 +278,9 @@ class MakeLocale extends Command
                             $keyArg = $node->args[0]->value;
                             $key = null;
                             if ($keyArg instanceof Node\Scalar\String_) {
-                                $key =$this->makeLocale->makeKey($keyArg->value);
+                                $key =$this->fileService->makeKey($keyArg->value);
                             } else {
-                                $key = $this->makeLocale->makeKey($this->prettyPrintExpr($keyArg));
+                                $key = $this->fileService->makeKey($this->prettyPrintExpr($keyArg));
                             }
                             $this->keys[] = $key;
                             if($node->name->toString() == '__' && isset($node->args[1]?->value?->items)){
@@ -343,7 +293,7 @@ class MakeLocale extends Command
                                     $comment = '@TODO Translate variables ';
                                     $comment .= implode(', ', $vars);
                                     $comment .= ' in file: ' . str_replace(base_path(), '', $this->file) . ' on line ' . $node->getLine();
-                                    $this->makeLocale->addComment(end($parts), $comment);
+                                    $this->fileService->addComment($this->keyComments, end($parts), $comment);
                                 }
                             }
                         }
@@ -367,7 +317,7 @@ class MakeLocale extends Command
     }
 
 
-    private function extractTranslationKeys($filePath)
+    public function extractTranslationKeys($filePath)
     {
         $content = file_get_contents($filePath);
         $pattern = '/
@@ -382,7 +332,7 @@ class MakeLocale extends Command
     }
 
 
-    private function getFiles($path, &$files = [])
+    public function getFiles($path, &$files = [])
     {
         if (is_file($path)) {
             $files[] = $path;
