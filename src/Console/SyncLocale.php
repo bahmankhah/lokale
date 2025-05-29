@@ -4,7 +4,14 @@ namespace Hsm\Lokale\Console;
 
 use Hsm\Lokale\FileService;
 use Illuminate\Console\Command;
-
+use PhpParser\Comment;
+use PhpParser\Error;
+use PhpParser\Node;
+use PhpParser\Node\Expr\FuncCall;
+use PhpParser\NodeTraverser;
+use PhpParser\NodeVisitorAbstract;
+use PhpParser\ParserFactory;
+use PhpParser\PrettyPrinter\Standard;
 
 class SyncLocale extends Command
 {
@@ -41,7 +48,7 @@ class SyncLocale extends Command
         foreach ($files as $file) {
             $arr = require $file;
             $fileName = preg_replace('/\.[^.]+$/', '', basename($file));
-            $fileService->createLanguageFile($fileName, $to, $arr ?? [], $this->option('output'));
+            $fileService->createLanguageFile($fileName, $to, $arr ?? []);
         }
     }
 

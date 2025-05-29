@@ -12,9 +12,18 @@ use PhpParser\PrettyPrinter\Standard;
 
 class FileService
 {
-    public function createLanguageFile($name, $locale, $array, $output, &$keyComments = [], $comment = false)
+    public $keyComments;
+    public $comment;
+    public $output;
+    public function __construct($output = 'lang', $comment = false, &$keyComments = [])
     {
-        $langMain = base_path($output);
+        $this->keyComments = &$keyComments;
+        $this->comment = $comment;
+        $this->output = $output;
+    }
+    public function createLanguageFile($name, $locale, $array)
+    {
+        $langMain = base_path($this->output);
         $langFile = sprintf('%s/%s/%s.php', $langMain, $locale, $name);
         if (!file_exists(dirname($langFile))) {
             mkdir(dirname($langFile), 0777, true);
@@ -27,22 +36,19 @@ class FileService
                 $content = [];
             }
         }
-        $array = $this->recursiveMerge($content, $array, $keyComments, $comment);
-        $this->createPhpArrayFile($langFile, $array, $keyComments);
+        $array = $this->recursiveMerge($content, $array);
+        $this->createPhpArrayFile($langFile, $array);
     }
 
-    public function createPhpArrayFile($filePath, array $data, array &$keyComments)
+    public function createPhpArrayFile($filePath, array $data)
     {
-        // Export the array using var_export
         $exported = "<?php\nreturn " . var_export($data, true) . ";\n";
 
-        // Parse the exported code into an AST
         $parser = (new ParserFactory)->createForNewestSupportedVersion();
         $ast = $parser->parse($exported);
 
-        // Create a visitor to convert array() to [] and add comments for specific keys
         $traverser = new NodeTraverser();
-        $traverser->addVisitor(new class($keyComments) extends NodeVisitorAbstract {
+        $traverser->addVisitor(new class($this->keyComments) extends NodeVisitorAbstract {
             private $keyComments;
 
             public function __construct(array &$keyComments)
@@ -52,21 +58,17 @@ class FileService
 
             public function enterNode(Node $node)
             {
-                // Convert ArrayNode to use short syntax
                 if ($node instanceof Node\Expr\Array_) {
                     $node->setAttribute('kind', Node\Expr\Array_::KIND_SHORT);
                 }
 
-                // Add comments to array items with specified keys
                 if ($node instanceof Node\Expr\ArrayItem && $node->key !== null) {
-                    // Convert key to string (handles string or numeric keys)
                     $key = $node->key instanceof Node\Scalar\String_
                         ? $node->key->value
                         : ($node->key instanceof Node\Scalar\LNumber
                             ? (string)$node->key->value
                             : null);
 
-                    // Add comment if the key exists in $keyComments
                     if ($key !== null && isset($this->keyComments[$key])) {
                             $node->setAttribute('comments', [
                                 new Comment("// " . implode(' | ', $this->keyComments[$key]))
@@ -79,10 +81,8 @@ class FileService
             }
         });
 
-        // Traverse and modify the AST
         $ast = $traverser->traverse($ast);
 
-        // Pretty print the modified AST with tree-like formatting
         $prettyPrinter = new class extends Standard {
             public function prettyPrintFile(array $nodes): string
             {
@@ -130,25 +130,25 @@ class FileService
         file_put_contents($filePath, $content);
     }
 
-    public function addComment(&$comments,$key, $commentValue){
-        if(isset($comments[$key])){
-            if(!in_array($commentValue, $comments[$key])){
-                $comments[$key][] = $commentValue;
+    public function addComment($key, $commentValue){
+        if(isset($this->keyComments[$key])){
+            if(!in_array($commentValue, $this->keyComments[$key])){
+                $this->keyComments[$key][] = $commentValue;
             }
         }else{
-            $comments[$key] = [$commentValue];
+            $this->keyComments[$key] = [$commentValue];
         }
     }
 
-    public function recursiveMerge(array $array1, array $array2, array &$comments, $comment = false)
+    public function recursiveMerge(array $array1, array $array2)
     {
         foreach ($array2 as $key => $value) {
             if (isset($array1[$key]) && is_array($array1[$key]) && is_array($value)) {
-                $array1[$key] = $this->recursiveMerge($array1[$key], $value, $comments, $comment);
+                $array1[$key] = $this->recursiveMerge($array1[$key], $value);
             } elseif (!isset($array1[$key]) || $array1[$key] === '') {
                 $array1[$key] = $value;
-                if($comment){
-                    $this->addComment($comments,$key,"@TODO Add translation");
+                if($this->comment){
+                    $this->addComment($key,"@TODO Add translation");
                 }
             }
         }
@@ -185,14 +185,13 @@ class FileService
         return strtolower(str_replace(' ', "_", trim($str)));
     }
 
-    public function extractTranslationKeysWithParser($filePath, &$keyComments)
+    public function extractTranslationKeysWithParser($filePath)
     {
         $parser = (new ParserFactory)->createForNewestSupportedVersion();
         $content = file_get_contents($filePath);
         $keys = [];
 
         if (str_ends_with($filePath, '.blade.php')) {
-            // Use regex to find translation function calls
             preg_match_all(
                 '/(?:__|trans_choice|trans)\s*\((?:[^()]+|\([^()]*\))*[^()]*\)/',
                 $content,
@@ -205,12 +204,16 @@ class FileService
                     $ast = $parser->parse($phpSnippet);
                     $traverser = new NodeTraverser();
 
-                    $traverser->addVisitor(new class($keys) extends NodeVisitorAbstract {
+                    $traverser->addVisitor(new class($keys, $filePath, $this) extends NodeVisitorAbstract {
                         public $keys;
+                        public $file;
+                        public $fileService;
 
-                        public function __construct(&$keys)
+                        public function __construct(&$keys, $filePath, FileService $fileService)
                         {
+                            $this->fileService = $fileService;
                             $this->keys = &$keys;
+                            $this->file = $filePath;
                         }
 
                         public function enterNode(Node $node)
@@ -223,14 +226,24 @@ class FileService
                             ) {
 
                                 $keyArg = $node->expr->args[0]->value;
-                                if(isset($node->expr->args[1]?->value)){
-                                    var_dump($node->expr->args[1]->value);
-                                    die();
-                                }
                                 if ($keyArg instanceof Node\Scalar\String_) {
-                                    $this->keys[] = $keyArg->value;
+                                    $key =$this->fileService->makeKey($keyArg->value);
                                 } else {
-                                    $this->keys[] = $this->prettyPrintExpr($keyArg);
+                                    $key = $this->fileService->makeKey($this->prettyPrintExpr($keyArg));
+                                }
+                                $this->keys[] = $key;
+                                if($node->expr->name->toString() == '__' && isset($node->expr->args[1]?->value?->items) && $this->fileService->comment){
+                                    $vars = [];
+                                    foreach ($node->expr->args[1]?->value?->items as $item) {
+                                        $vars[] = ':'.$item->key->value;
+                                    }
+                                    if(!empty($vars)){
+                                        $parts = explode('.', $key);
+                                        $comment = '@TODO Translate variables ';
+                                        $comment .= implode(', ', $vars);
+                                        $comment .= ' in file: ' . str_replace(base_path(), '', $this->file) . ' on line ' . $node->getLine();
+                                        $this->fileService->addComment(end($parts), $comment);
+                                    }
                                 }
                             }
                         }
@@ -249,23 +262,21 @@ class FileService
                 }
             }
         } else {
-            // Normal PHP file, parse entire content
             try {
                 $ast = $parser->parse($content);
                 $traverser = new NodeTraverser();
 
-                $traverser->addVisitor(new class($keys, $this, $filePath, $keyComments) extends NodeVisitorAbstract {
+                $traverser->addVisitor(new class($keys, $this, $filePath) extends NodeVisitorAbstract {
                     public $keys;
                     public $fileService;
                     public $file;
                     public $keyComments;
 
-                    public function __construct(&$keys, FileService $fileService, $filePath, &$keyComments)
+                    public function __construct(&$keys, FileService $fileService, $filePath)
                     {
                         $this->file = $filePath;
                         $this->keys = &$keys;
                         $this->fileService = $fileService;
-                        $this->keyComments = &$keyComments;
                     }
 
                     public function enterNode(Node $node)
@@ -283,7 +294,7 @@ class FileService
                                 $key = $this->fileService->makeKey($this->prettyPrintExpr($keyArg));
                             }
                             $this->keys[] = $key;
-                            if($node->name->toString() == '__' && isset($node->args[1]?->value?->items)){
+                            if($node->name->toString() == '__' && isset($node->args[1]?->value?->items) && $this->fileService->comment){
                                 $vars = [];
                                 foreach ($node->args[1]?->value?->items as $item) {
                                     $vars[] = ':'.$item->key->value;
@@ -293,7 +304,7 @@ class FileService
                                     $comment = '@TODO Translate variables ';
                                     $comment .= implode(', ', $vars);
                                     $comment .= ' in file: ' . str_replace(base_path(), '', $this->file) . ' on line ' . $node->getLine();
-                                    $this->fileService->addComment($this->keyComments, end($parts), $comment);
+                                    $this->fileService->addComment(end($parts), $comment);
                                 }
                             }
                         }
