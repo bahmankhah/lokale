@@ -1,4 +1,5 @@
 <?php
+
 namespace Hsm\Lokale;
 
 use PhpParser\Comment;
@@ -12,15 +13,54 @@ use PhpParser\PrettyPrinter\Standard;
 
 class FileService
 {
-    public $keyComments;
+    public $placeholder;
     public $comment;
     public $output;
-    public function __construct($output = 'lang', $comment = false, &$keyComments = [])
+    public $default;
+    public function __construct($output = 'lang', $comment = false, $placeholder = true, $default = 'default')
     {
-        $this->keyComments = &$keyComments;
         $this->comment = $comment;
         $this->output = $output;
+        $this->placeholder = $placeholder;
+        $this->default = $default;
     }
+
+    public function createLanguageFileFromCollection($name, $locale, $translationCollection)
+    {
+        $langMain = base_path($this->output);
+        $langFile = sprintf('%s/%s/%s.php', $langMain, $locale, $name);
+        if (!file_exists(dirname($langFile))) {
+            mkdir(dirname($langFile), 0777, true);
+        }
+        if (!file_exists($langFile)) {
+            $content = [];
+        } else {
+            $content = require $langFile;
+            if (!is_array($content)) {
+                $content = [];
+            }
+        }
+        foreach ($translationCollection as $key) {
+            $arr = [];
+            $temp = explode('.', $key->getPath());
+            $first = array_shift($temp);
+            $this->makeArray(implode('.', $temp), $arr, $key);
+            if (empty($arr)) {
+                if ($this->placeholder) {
+                    $value = $this->makeDefaultPlaceholder($first);
+                } else {
+                    $value = '';
+                }
+                $key->setTranslationArray([$this->makeKey($first) => $value]);
+            } else {
+                $key->setTranslationArray($arr);
+            }
+            $content = $this->recursiveMerge($content, $key->getTranslationArray());
+        }
+        $this->createPhpArrayFile($langFile, $content, $translationCollection);
+    }
+
+
     public function createLanguageFile($name, $locale, $array)
     {
         $langMain = base_path($this->output);
@@ -40,27 +80,45 @@ class FileService
         $this->createPhpArrayFile($langFile, $array);
     }
 
-    public function createPhpArrayFile($filePath, array $data)
+    public function createPhpArrayFile($filePath, array $data, ?TranslationCollection $translationCollection = null)
     {
         $exported = "<?php\nreturn " . var_export($data, true) . ";\n";
+
+        $fileName = basename($filePath, '.php');
 
         $parser = (new ParserFactory)->createForNewestSupportedVersion();
         $ast = $parser->parse($exported);
 
         $traverser = new NodeTraverser();
-        $traverser->addVisitor(new class($this->keyComments) extends NodeVisitorAbstract {
-            private $keyComments;
-
-            public function __construct(array &$keyComments)
+        $traverser->addVisitor(new class( $fileName, $this->comment, $translationCollection = null) extends NodeVisitorAbstract {
+            public $translationCollection;
+            public $parentStack = [];
+            public $fileName;
+            public $comment;
+            public function __construct($fileName, $comment = false, $translationCollection = null)
             {
-                $this->keyComments = &$keyComments;
+                $this->translationCollection = $translationCollection;
+                $this->fileName = $fileName;
+                $this->comment = $comment;
+            }
+
+            public function leaveNode(Node $node)
+            {
+                array_pop($this->parentStack);
+                return null;
             }
 
             public function enterNode(Node $node)
             {
+                if (!empty($this->parentStack)) {
+                    $node->setAttribute('parent', end($this->parentStack));
+                }
+                $this->parentStack[] = $node;
+
                 if ($node instanceof Node\Expr\Array_) {
                     $node->setAttribute('kind', Node\Expr\Array_::KIND_SHORT);
                 }
+
 
                 if ($node instanceof Node\Expr\ArrayItem && $node->key !== null) {
                     $key = $node->key instanceof Node\Scalar\String_
@@ -69,15 +127,44 @@ class FileService
                             ? (string)$node->key->value
                             : null);
 
-                    if ($key !== null && isset($this->keyComments[$key])) {
-                            $node->setAttribute('comments', [
-                                new Comment("// " . implode(' | ', $this->keyComments[$key]))
-                            ]);
-                        
+                    if ($key !== null && $this->translationCollection) {
+                        if ($node->value instanceof Node\Scalar\String_) {
+                            $translationKey = $this->translationCollection->findPath($this->makePath($node));
+
+                            if ($translationKey) {
+                                if ($this->comment) {
+                                    $comments = [];
+                                    foreach ($translationKey->getComments() as $comment) {
+                                        if (!str_starts_with($comment, '//')) {
+                                            $comment = "// $comment";
+                                        }
+                                        $comments[] = new Comment($comment);
+                                    }
+                                    $node->setAttribute('comments', $comments);
+                                }
+                            }
+                        }
                     }
                 }
 
                 return null;
+            }
+
+            public function makePath($node)
+            {
+                $path = [];
+                while ($node !== null) {
+                    if ($node instanceof Node\Expr\ArrayItem && $node->key !== null) {
+                        $key = $node->key instanceof Node\Scalar\String_
+                            ? $node->key->value
+                            : ($node->key instanceof Node\Scalar\LNumber
+                                ? (string)$node->key->value
+                                : null);
+                        $path[] = $key;
+                    }
+                    $node = $node->getAttribute('parent', null);
+                }
+                return $this->fileName . '.' . implode('.', array_reverse($path));
             }
         });
 
@@ -130,15 +217,6 @@ class FileService
         file_put_contents($filePath, $content);
     }
 
-    public function addComment($key, $commentValue){
-        if(isset($this->keyComments[$key])){
-            if(!in_array($commentValue, $this->keyComments[$key])){
-                $this->keyComments[$key][] = $commentValue;
-            }
-        }else{
-            $this->keyComments[$key] = [$commentValue];
-        }
-    }
 
     public function recursiveMerge(array $array1, array $array2)
     {
@@ -147,15 +225,12 @@ class FileService
                 $array1[$key] = $this->recursiveMerge($array1[$key], $value);
             } elseif (!isset($array1[$key]) || $array1[$key] === '') {
                 $array1[$key] = $value;
-                if($this->comment){
-                    $this->addComment($key,"@TODO Add translation");
-                }
             }
         }
         return $array1;
     }
 
-    public function makeArray($path, &$arr)
+    public function makeArray($path, &$arr, $translationKey)
     {
         $parts = explode('.', $path);
 
@@ -169,9 +244,14 @@ class FileService
         }
 
         if (!empty($parts)) {
-            $this->makeArray(implode('.', $parts), $arr[$this->makeKey($key)]); // Recurse on the rest
+            $this->makeArray(implode('.', $parts), $arr[$this->makeKey($key)], $translationKey); // Recurse on the rest
         } else {
-            $arr[$this->makeKey($key)] = $this->makeDefaultPlaceholder($key);
+            if($this->placeholder){
+                $arr[$this->makeKey($key)] = $this->makeDefaultPlaceholder($key);
+            }else{
+                $arr[$this->makeKey($key)] = '';
+                $translationKey->addComment("@TODO Add translation");
+            }
         }
     }
 
@@ -182,14 +262,14 @@ class FileService
 
     public function makeKey($str)
     {
-        return strtolower(str_replace(' ', "_", trim($str)));
+        return strtolower(str_replace(' ', "_", trim($str, "\"'.")));
     }
 
     public function extractTranslationKeysWithParser($filePath)
     {
         $parser = (new ParserFactory)->createForNewestSupportedVersion();
         $content = file_get_contents($filePath);
-        $keys = [];
+        $keys = new TranslationCollection();
 
         if (str_ends_with($filePath, '.blade.php')) {
             preg_match_all(
@@ -224,27 +304,31 @@ class FileService
                                 $node->expr->name instanceof Node\Name &&
                                 in_array($node->expr->name->toString(), ['__', 'trans_choice', 'trans'])
                             ) {
-
                                 $keyArg = $node->expr->args[0]->value;
                                 if ($keyArg instanceof Node\Scalar\String_) {
-                                    $key =$this->fileService->makeKey($keyArg->value);
+                                    $key = $this->fileService->makeKey($keyArg->value);
+                                    if ($key !== $keyArg->value) {
+                                        $node->expr->args[0]->value = new Node\Scalar\String_($key);
+                                    }
                                 } else {
                                     $key = $this->fileService->makeKey($this->prettyPrintExpr($keyArg));
                                 }
-                                $this->keys[] = $key;
-                                if($node->expr->name->toString() == '__' && isset($node->expr->args[1]?->value?->items) && $this->fileService->comment){
+                                $translationKey = new TranslationKey($this->fileService->createPath($key));
+                                $translationKey->setKey($this->fileService->findKeyFromPath($key));
+                                $translationKey->addFilePath(str_replace(base_path(), '', $this->file) . ':' . $node->getLine());
+                                if ($node->expr->name->toString() == '__' && isset($node->expr->args[1]?->value?->items) && $this->fileService->comment) {
                                     $vars = [];
                                     foreach ($node->expr->args[1]?->value?->items as $item) {
-                                        $vars[] = ':'.$item->key->value;
+                                        $vars[] = ':' . $item->key->value;
                                     }
-                                    if(!empty($vars)){
-                                        $parts = explode('.', $key);
+                                    if (!empty($vars)) {
                                         $comment = '@TODO Translate variables ';
                                         $comment .= implode(', ', $vars);
                                         $comment .= ' in file: ' . str_replace(base_path(), '', $this->file) . ' on line ' . $node->getLine();
-                                        $this->fileService->addComment(end($parts), $comment);
+                                        $translationKey->addComment($comment);
                                     }
                                 }
+                                $this->keys->append($translationKey);
                             }
                         }
 
@@ -270,7 +354,6 @@ class FileService
                     public $keys;
                     public $fileService;
                     public $file;
-                    public $keyComments;
 
                     public function __construct(&$keys, FileService $fileService, $filePath)
                     {
@@ -289,24 +372,29 @@ class FileService
                             $keyArg = $node->args[0]->value;
                             $key = null;
                             if ($keyArg instanceof Node\Scalar\String_) {
-                                $key =$this->fileService->makeKey($keyArg->value);
+                                $key = $this->fileService->makeKey($keyArg->value);
+                                if ($key !== $keyArg->value) {
+                                    $node->args[0]->value = new Node\Scalar\String_($key);
+                                }
                             } else {
                                 $key = $this->fileService->makeKey($this->prettyPrintExpr($keyArg));
                             }
-                            $this->keys[] = $key;
-                            if($node->name->toString() == '__' && isset($node->args[1]?->value?->items) && $this->fileService->comment){
+                            $translationKey = new TranslationKey($this->fileService->createPath($key));
+                            $translationKey->setKey($this->fileService->findKeyFromPath($key));
+                            $translationKey->addFilePath(str_replace(base_path(), '', $this->file) . ':' . $node->getLine());
+                            if ($node->name->toString() == '__' && isset($node->args[1]?->value?->items) && $this->fileService->comment) {
                                 $vars = [];
                                 foreach ($node->args[1]?->value?->items as $item) {
-                                    $vars[] = ':'.$item->key->value;
+                                    $vars[] = ':' . $item->key->value;
                                 }
-                                if(!empty($vars)){
-                                    $parts = explode('.', $key);
+                                if (!empty($vars)) {
                                     $comment = '@TODO Translate variables ';
                                     $comment .= implode(', ', $vars);
                                     $comment .= ' in file: ' . str_replace(base_path(), '', $this->file) . ' on line ' . $node->getLine();
-                                    $this->fileService->addComment(end($parts), $comment);
+                                    $translationKey->addComment($comment);
                                 }
                             }
+                            $this->keys->append($translationKey);
                         }
                     }
 
@@ -324,9 +412,24 @@ class FileService
             }
         }
 
-        return array_unique($keys);
+        return $keys;
     }
 
+    public function findKeyFromPath($path)
+    {
+        $parts = explode('.', $path);
+        return end($parts);
+    }
+
+    public function createPath($path)
+    {
+        $parts = explode('.', $path);
+        if (count($parts) > 1) {
+            return $path;
+        } else {
+            return $this->default . '.' . $path;
+        }
+    }
 
     public function extractTranslationKeys($filePath)
     {

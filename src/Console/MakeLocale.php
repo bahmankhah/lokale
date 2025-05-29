@@ -3,6 +3,7 @@
 namespace Hsm\Lokale\Console;
 
 use Hsm\Lokale\FileService;
+use Hsm\Lokale\TranslationCollection;
 use Illuminate\Console\Command;
 
 class MakeLocale extends Command
@@ -12,7 +13,7 @@ class MakeLocale extends Command
      *
      * @var string
      */
-    protected $signature = 'locale:make {--locale=} {--src=app} {--default=default} {--comment} {--output=lang}';
+    protected $signature = 'locale:make {--locale=} {--src=app} {--default=default} {--comment} {--output=lang} {--no-placeholder}';
 
     /**
      * The console command description.
@@ -21,15 +22,13 @@ class MakeLocale extends Command
      */
     protected $description = 'Command description';
 
-    private $keyComments = [];
     /**
      * Execute the console command.
      */
     public function handle()
     {
-        $fileService = new FileService(output: $this->option('output'), comment: $this->option('comment'), keyComments: $this->keyComments);
+        $fileService = new FileService($this->option('output'), $this->option('comment'), !$this->option('no-placeholder'), $this->option('default'));
         $locale = $this->option('locale');
-        $default = $this->option('default');
         if (!$locale) {
             $locale = config('app.locale');
         }
@@ -38,25 +37,15 @@ class MakeLocale extends Command
         $appDir = $this->option('src');
         $appDir = realpath($appDir);
         $fileService->getFiles($appDir, $files);
-        $allKeys = [];
+        $allKeys = new TranslationCollection();
         foreach ($files as $file) {
-            $allKeys = array_merge($allKeys, $fileService->extractTranslationKeysWithParser($file));
+            $allKeys->appendCollection($fileService->extractTranslationKeysWithParser($file));
         }
-        $allKeys = array_unique($allKeys);
-        // print_r($allKeys);
-        // die();
+        $grouped = $allKeys->groupByFile();
+        foreach($grouped as $name=>$translationCollection){
+            $fileService->createLanguageFileFromCollection($name, $locale, $translationCollection);
+        }
 
-        foreach ($allKeys as $key) {
-            $arr = [];
-            $temp = explode('.', $key);
-            $first = array_shift($temp);
-            $fileService->makeArray(implode('.', $temp), $arr);
-            if (empty($arr)) {
-                $fileService->createLanguageFile($default, $locale, [$fileService->makeKey($first) => $first]);
-            } else {
-                $fileService->createLanguageFile($first, $locale, $arr);
-            }
-        }
     }
 
 }

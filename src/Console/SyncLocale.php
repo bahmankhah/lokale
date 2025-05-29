@@ -3,6 +3,7 @@
 namespace Hsm\Lokale\Console;
 
 use Hsm\Lokale\FileService;
+use Hsm\Lokale\TranslationCollection;
 use Illuminate\Console\Command;
 
 class SyncLocale extends Command
@@ -12,7 +13,7 @@ class SyncLocale extends Command
      *
      * @var string
      */
-    protected $signature = 'locale:sync {--from=} {--to=} {--output=lang} {--comment}';
+    protected $signature = 'locale:sync {--from=} {--to=} {--output=lang} {--comment} {--no-placeholder}';
 
     /**
      * The console command description.
@@ -26,7 +27,7 @@ class SyncLocale extends Command
      */
     public function handle()
     {
-        $fileService = new FileService();
+        $fileService = new FileService($this->option('output'), $this->option('comment'), !$this->option('no-placeholder'));
         $from = $this->option('from');
         $to = $this->option('to');
         if (is_null($from) || is_null($to)) {
@@ -40,7 +41,8 @@ class SyncLocale extends Command
         foreach ($files as $file) {
             $arr = require $file;
             $fileName = preg_replace('/\.[^.]+$/', '', basename($file));
-            $fileService->createLanguageFile($fileName, $to, $arr ?? []);
+            $collection = TranslationCollection::fromArray($fileName, $arr);
+            $fileService->createLanguageFileFromCollection($fileName, $to, $collection);
         }
     }
 

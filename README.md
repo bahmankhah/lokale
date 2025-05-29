@@ -1,3 +1,4 @@
+
 # Lokale
 
 **Lokale** is a Laravel package designed to automatically extract and generate translation files by scanning your source code for translation keys. It also supports syncing translations between different locales.
@@ -39,6 +40,7 @@ php artisan locale:make
 | `--default`   | Used for generating default translation placeholders (default: `default`).  |
 | `--comment`   | Adds `@TODO` comments to missing translations with context information.     |
 | `--output`    | Output directory for language files (default: `lang/`).                     |
+| `--no-placeholder` | Do not generate placeholder values.                                   |
 
 #### Example
 
@@ -71,8 +73,29 @@ php artisan locale:sync --from=en --to=fr
 | `--to`        | Target locale. Required.                                                    |
 | `--output`    | Base directory for language files (default: `lang/`).                       |
 | `--comment`   | Adds `@TODO` comments for untranslated keys in target files.                |
+| `--no-placeholder` | Do not generate placeholder values.                                   |
 
 This is useful when adding new keys in one language and you want the same structure in another language.
+
+### 3. Generate Attribute Translations
+
+This command generates translation files for form request attributes:
+
+```bash
+php artisan locale:attributes --locale=fr
+```
+
+#### Options
+
+| Option        | Description                                                                 |
+|---------------|-----------------------------------------------------------------------------|
+| `--locale`    | Target locale.                                                              |
+| `--src`       | Directory for form requests (default: `app/Http/Requests`).                 |
+| `--output`    | Output directory (default: `lang/`).                                        |
+| `--comment`   | Add comments for missing translations.                                      |
+| `--no-placeholder` | Do not generate placeholder values.                                   |
+
+This helps to keep validation error messages localized and consistent.
 
 ## 🧠 How It Works
 
